@@ -1,0 +1,901 @@
+#R Code used for CRIS (South London and Maudsley NHS Foundation Trust)
+
+setwd("xxx")
+
+#Load packages
+#.libPaths("xxx")
+#.libPaths()
+library("pacman")
+pacman::p_load(rio,
+               dplyr,
+               skimr,
+               lubridate,
+               forcats,
+               janitor,
+               ggplot2,
+               rstatix) 
+
+###LOAD AND CLEAN DEMOGRAPHICS###
+demographics <- import("demographics.csv",
+                       na.strings = c("", "NULL"))
+
+demographics <- demographics %>%
+  rename(brcid = BrcId,
+         dob = cleaneddateofbirth,
+         gender_code = gender,
+         ethnic_code = ethnicitycleaned,
+         dep_diag_date = date_earliest_inclusion_diagnosis,
+         dep_diag = earliest_inclusion_diagnosis)
+
+demographics$dep_diag_date <- as.Date(demographics$dep_diag_date , format = "%d/%m/%Y")
+demographics$dob <- as.Date(demographics$dob , format = "%d/%m/%Y")
+demographics$brcid <- as.character(demographics$brcid)
+skimr::skim(demographics)
+
+#Age at first depression diagnosis 
+demographics <- demographics %>%
+  mutate(dep_age = interval(dob, dep_diag_date) %/% years(1))
+
+demographics %>% tabyl(dep_age)
+
+#Ethnicity
+demographics <- demographics %>%
+  mutate(ethnic_code = fct_relevel(ethnic_code))
+
+demographics %>% tabyl(ethnic_code)
+
+demographics <- demographics %>%
+  mutate(ethnicity = recode(ethnic_code, 
+                            "C. White \x96 Other" = "White",
+                            "A. White - British" = "White",
+                            "B. White - Irish" = "White",
+                            "C. White \x96 Gyp/Irish Traveller" = "White",
+                            "R. Asn/Asn Brit \x96 Chinese" = "Asian",
+                            "S. Asian/Asian British \x96 Other" = "Asian",
+                            "H. Asn/Asn Brit - Indian" = "Asian",
+                            "J. Asn/Asn Brit - Pakistani" = "Asian",
+                            "K. Asn/Asn Brit - Bangladeshi" = "Asian",
+                            "D. Mixed Race - W&B Carib" = "Mixed",
+                            "E. Mixed Race - W&B African" = "Mixed",
+                            "F. Mixed Race - Wte and Asn" = "Mixed",
+                            "G. Mixed Race - Other" = "Mixed",
+                            "M. Blk/Blk Brit - Caribbean" = "Black",
+                            "N. Blk/Blk British - African" = "Black",
+                            "P. Black/Black British - Other" = "Black",
+                            "S. Other ethnic group \x96 Other" = "Other",
+                            "S. Other ethnic group - Arab" = "Other",
+                            "Not known" = NA_character_,
+                            "Z. Not Stated" = NA_character_))
+
+demographics %>% tabyl(ethnic_code, ethnicity)
+demographics %>% tabyl(ethnicity)
+
+#Gender
+demographics %>% tabyl(gender_code)
+
+demographics <- demographics %>%
+  mutate(gender = recode(gender_code,
+                         "Male" = "Male",
+                         "Female" = "Female",
+                         "Other" = "Other",
+                         "Not Specified" = NA_character_))
+
+demographics %>% tabyl(gender)
+
+#Dropping unneeded variables
+demographics <- subset(demographics, select=c(brcid, dep_diag, dep_diag_date, dob, dep_age, ethnicity, gender))
+
+
+###LOAD AND CLEAN REFERRALS###
+referrals <- import("referrals.csv",
+                    na.strings = c("", "NULL"))
+
+referrals <- referrals %>%
+  rename(episode_id = Episode_id, 
+         team_name = Team_name,
+         speciality = Specialty,
+         area_of_care = Area_of_care,
+         cag = CAG,
+         ref_date = Episode_referral_date,
+         ref_status = Referral_status,
+         ref_source = Referral_Source_ID,
+         ref_priority = Referral_priority,
+         ref_source_if_internal = Initiating_location_ID,
+         ref_accepted_date = Episode_accepted_date,
+         first_contact = First_seen_by_services,
+         dis_date = Episode_discharge_date,
+         dis_method_episode = Discharge_Method_Episode,
+         dis_dest_episode = Discharge_Destination_Episode,
+         dis_method_ref = Discharge_Method_referral,
+         dis_dest_ref = Discharge_Destination_referral)
+         
+referrals$ref_date <- as.Date(referrals$ref_date , format = "%d/%m/%Y")
+referrals$ref_accepted_date <- as.Date(referrals$ref_accepted_date , format = "%d/%m/%Y")
+referrals$first_contact <- as.Date(referrals$first_contact , format = "%d/%m/%Y")
+referrals$dis_date <- as.Date(referrals$dis_date , format = "%d/%m/%Y")
+referrals$brcid <- as.character(referrals$brcid)
+
+skimr::skim(referrals)
+
+#Dropping row with blank ID 
+referrals <- referrals %>%
+  filter(!is.na(brcid))
+
+#Dropping unneeded variables
+referrals <- subset(referrals, select=c(rid, ref_date, dis_date, dis_reason, patient_area_description, ref_source, speciality, team, urgency))
+
+
+###LOAD AND CLEAN THERAPY###
+therapy <- import("therapy.csv",
+                  na.strings = c("", "NULL"))
+
+therapy <- therapy %>%
+  rename(brcid = BrcId, 
+         therapy_end_date = Therapy_end_date,
+         total_sessions_attended = Total_sessions_attended)
+
+therapy$therapy_start_date <- as.Date(therapy$therapy_start_date , format = "%d/%m/%Y")
+therapy$brcid <- as.character(therapy$brcid)
+
+#Dropping unneeded variables
+therapy <- subset(therapy, select=c(brcid, therapy_start_date, first_session_type, first_session_team, total_sessions_attended))
+
+skimr::skim(therapy)
+
+
+###LOAD AND CLEAN MEDICATION###
+medication <- import("medication.csv",
+                     na.strings = c("", "NULL"))
+
+medication <- medication %>%
+  rename(brcid = BrcId, 
+         drug = drug_name,
+         date = start_date,
+         is_ap = Is_AP,
+         is_ad = Is_AD,
+         is_ms = Is_MS,
+         is_anx = Is_Anx,
+         is_adhd = Is_ADHD)
+
+medication <- medication %>% 
+  mutate(drug = trimws(tolower(drug)))
+
+medication$date <- as.Date(medication$date , format = "%d/%m/%Y")
+
+medication$brcid <- as.character(medication$brcid)
+
+#Keeping one of each type of drug per person, and keeping the first mention
+medication <- medication %>% 
+  group_by(brcid, drug) %>% 
+  summarise(first_drug_mention = min(date))
+
+
+###LOAD AND CLEAN DIAGNOSES###
+diagnoses <- import("diagnoses.csv",
+                    na.strings = c("", "NULL"))
+
+diagnoses <- diagnoses %>%
+  rename(brcid = BrcId, 
+         pre_or_post_inclusion = Pre_or_post_inclusion,
+         diag_date = Diagnosis_Date,
+         primary_diag = Primary_Diag,
+         secondary_diag_1 = Secondary_Diag_1,
+         secondary_diag_2 = Secondary_Diag_2,
+         secondary_diag_3 = Secondary_Diag_3,
+         secondary_diag_4 = Secondary_Diag_4,
+         secondary_diag_5 = Secondary_Diag_5,
+         secondary_diag_6 = Secondary_Diag_6)
+
+diagnoses$diag_date <- as.Date(diagnoses$diag_date , format = "%d/%m/%Y")
+diagnoses$brcid <- as.character(diagnoses$brcid)
+
+skimr::skim(diagnoses)
+
+#Putting in long format, including all primary and secondary diagnoses in one field
+diagnoses <- gather(diagnoses, diagnosis_type, diag, primary_diag:secondary_diag_6, factor_key=TRUE)
+
+#Anxiety first diagnosis flag
+diagnoses <- diagnoses %>% 
+  mutate(anx = case_when(grepl("F4", diag, fixed = TRUE) ~ "Yes"))
+anx <- subset(diagnoses, anx=="Yes", select=c(brcid, anx, diag_date))
+anx <- anx %>% rename(anx_date = diag_date)
+anx <- anx %>% 
+  group_by(brcid) %>% 
+  arrange(anx_date, .by_group = TRUE) %>% 
+  mutate(anx_instance = row_number())
+anx <- anx %>%
+  group_by(brcid) %>% 
+  filter(anx_instance == min(anx_instance)) %>% 
+  slice(1) %>% 
+  ungroup()
+
+#Psychosis first diagnosis flag
+diagnoses <- diagnoses %>% 
+  mutate(sz = case_when(grepl("F2", diag, fixed = TRUE) ~ "Yes"))
+sz <- subset(diagnoses, sz=="Yes", select=c(brcid, sz, diag_date))
+sz <- sz %>% rename(sz_date = diag_date)
+sz <- sz %>% 
+  group_by(brcid) %>% 
+  arrange(sz_date, .by_group = TRUE) %>% 
+  mutate(sz_instance = row_number())
+sz <- sz %>%
+  group_by(brcid) %>% 
+  filter(sz_instance == min(sz_instance)) %>% 
+  slice(1) %>% 
+  ungroup()
+
+#Eating disorder first diagnosis flag
+diagnoses <- diagnoses %>% 
+  mutate(ed = case_when(grepl("F50", diag, fixed = TRUE) ~ "Yes"))
+ed <- subset(diagnoses, ed=="Yes", select=c(brcid, ed, diag_date))
+ed <- ed %>% rename(ed_date = diag_date)
+ed <- ed %>% 
+  group_by(brcid) %>% 
+  arrange(ed_date, .by_group = TRUE) %>% 
+  mutate(ed_instance = row_number())
+ed <- ed %>%
+  group_by(brcid) %>% 
+  filter(ed_instance == min(ed_instance)) %>% 
+  slice(1) %>% 
+  ungroup()
+
+#Personality disorder first diagnosis flag
+diagnoses <- diagnoses %>% 
+  mutate(pd = case_when(grepl("F60", diag, fixed = TRUE) ~ "Yes",
+                        grepl("F61", diag, fixed = TRUE) ~ "Yes"))
+pd <- subset(diagnoses, pd=="Yes", select=c(brcid, pd, diag_date))
+pd <- pd %>% rename(pd_date = diag_date)
+pd <- pd %>% 
+  group_by(brcid) %>% 
+  arrange(pd_date, .by_group = TRUE) %>% 
+  mutate(pd_instance = row_number())
+pd <- pd %>%
+  group_by(brcid) %>% 
+  filter(pd_instance == min(pd_instance)) %>% 
+  slice(1) %>% 
+  ungroup()
+
+#Learning/developmental disorder first diagnosis flag
+diagnoses <- diagnoses %>% 
+  mutate(ld = case_when(grepl("F7", diag, fixed = TRUE) ~ "Yes",
+                        grepl("F8", diag, fixed = TRUE) ~ "Yes"))
+ld <- subset(diagnoses, ld=="Yes", select=c(brcid, ld, diag_date))
+ld <- ld %>% rename(ld_date = diag_date)
+ld <- ld %>% 
+  group_by(brcid) %>% 
+  arrange(ld_date, .by_group = TRUE) %>% 
+  mutate(ld_instance = row_number())
+ld <- ld %>%
+  group_by(brcid) %>% 
+  filter(ld_instance == min(ld_instance)) %>% 
+  slice(1) %>% 
+  ungroup()
+
+#Hyperkinetic disorder first diagnosis flag
+diagnoses <- diagnoses %>% 
+  mutate(adhd = case_when(grepl("F90", diag, fixed = TRUE) ~ "Yes"))
+adhd <- subset(diagnoses, adhd=="Yes", select=c(brcid, adhd, diag_date))
+adhd <- adhd %>% rename(adhd_date = diag_date)
+adhd <- adhd %>% 
+  group_by(brcid) %>% 
+  arrange(adhd_date, .by_group = TRUE) %>% 
+  mutate(adhd_instance = row_number())
+adhd <- adhd %>%
+  group_by(brcid) %>% 
+  filter(adhd_instance == min(adhd_instance)) %>% 
+  slice(1) %>% 
+  ungroup()
+
+###LINKING REFERRALS TO DEMOGRAPHICS ###
+dataset <- left_join(demographics, referrals, by = "brcid")
+skimr::skim(dataset)
+
+#Referral and discharge year
+dataset <- dataset %>% mutate(ref_year = year(ref_date))
+dataset <- dataset %>% mutate(dis_year = year(dis_date))
+
+###ELIGIBILITY CRITERIA### 
+# SQL extraction was: 
+#- Has had F32* or F33* ICD-10 primary or secondary diagnosis ever
+#- Has diagnosis under 18
+
+#Dropping rejected referrals
+dataset <- subset(dataset, ref_status=="Accepted" | 
+                    ref_status=="Discharged" | 
+                    ref_status=="Waiting" | 
+                    is.na(ref_status))
+
+dataset %>% tabyl(ref_status)
+
+#Keeping referrals which overlapped with 2015 to 2019
+dataset <- dataset %>%
+  mutate(ref_window = case_when(
+    year(ref_date)>=2015 & year(ref_date)<=2019 ~ "Yes",
+    year(dis_date)>=2015 & year(dis_date)<=2019 ~ "Yes",
+    year(ref_date)<=2015 & year(dis_date)>=2019 ~ "Yes",
+    year(ref_date)<=2019 & is.na(dis_date) ~ "Yes"
+  ))
+
+dataset %>% tabyl(ref_window)
+dataset <- subset(dataset, ref_window=="Yes")
+
+#Keep referrals during which first depression diagnosis occurred
+dataset <- dataset %>%
+  mutate(diag_window = case_when(
+    dep_diag_date>=ref_date & dep_diag_date<=dis_date ~ "Yes",
+    dep_diag_date>=ref_date & is.na(dis_date) ~ "Yes"))
+
+dataset %>% tabyl(diag_window)
+dataset <- subset(dataset, diag_window=="Yes")
+
+#Checking referrals in the <18 age range at first depression diagnosis
+dataset %>% tabyl(dep_age)
+
+#Some exactly 18, so dropping those
+dataset <- subset(dataset, dep_age<18)
+
+#Checking referral ages plausible
+dataset <- dataset %>%
+  mutate(ref_age = interval(dob, ref_date) %/% years(1))
+dataset %>% tabyl(ref_age) 
+
+#Dropping age 0 referrals as implausible
+dataset <- subset(dataset, ref_age>0)
+
+#If multiple referrals, just keeping the first 
+dataset <- dataset %>% 
+  group_by(brcid, ref_date, ref_accepted_date, episode_id) %>% 
+  mutate(dup = n()>1)
+dataset %>% tabyl(dup)
+
+dataset <- dataset %>% 
+  group_by(brcid) %>% 
+  arrange(ref_date, ref_accepted_date, episode_id, .by_group = TRUE) %>% 
+  mutate(instance = row_number())
+
+dataset <- dataset %>%
+  group_by(brcid) %>% 
+  filter(instance == min(instance)) %>% 
+  slice(1) %>% 
+  ungroup()
+
+#Checking one person per row
+length(unique(dataset[["rid"]]))
+
+#####ANALYSIS#####
+#Demographic and clinical characteristics
+dataset %>% tabyl(gender) 
+dataset %>% tabyl(ethnicity) 
+dataset %>% tabyl(dep_age) 
+dataset %>% tabyl(ref_age) 
+
+dataset <- dataset %>%
+  mutate(dep_age_cat = case_when(
+    dep_age<11 ~ "<11",
+    dep_age==11 ~ "11",
+    dep_age==12 ~ "12",
+    dep_age==13 ~ "13",
+    dep_age==14 ~ "14",
+    dep_age==15 ~ "15",
+    dep_age==16 ~ "16",
+    dep_age==17 ~ "17"
+  ))
+dataset %>% tabyl(dep_age_cat) 
+
+summary(dataset$dep_age)
+
+
+dataset <- dataset %>%
+  mutate(ref_age_cat = case_when(
+    ref_age<11 ~ "<11",
+    ref_age==11 ~ "11",
+    ref_age==12 ~ "12",
+    ref_age==13 ~ "13",
+    ref_age==14 ~ "14",
+    ref_age==15 ~ "15",
+    ref_age==16 ~ "16",
+    ref_age==17 ~ "17"
+  ))
+dataset %>% tabyl(ref_age_cat) 
+
+summary(dataset$ref_age)
+
+#Other diagnoses which pre-date discharge for this referral
+dataset <- left_join(dataset, anx, by = "brcid")
+dataset <- left_join(dataset, ed, by = "brcid")
+dataset <- left_join(dataset, pd, by = "brcid")
+dataset <- left_join(dataset, ld, by = "brcid")
+dataset <- left_join(dataset, adhd, by = "brcid")
+dataset <- left_join(dataset, sz, by = "brcid")
+
+dataset <- dataset %>%
+  mutate(ref_anx = case_when(anx=="Yes" & anx_date<=dis_date ~ "Yes",
+                             anx=="Yes" & is.na(dis_date) ~ "Yes"))
+dataset %>% tabyl(ref_anx)
+
+dataset <- dataset %>%
+  mutate(ref_sz = case_when(sz=="Yes" & sz_date<=dis_date ~ "Yes",
+                            sz=="Yes" & is.na(dis_date) ~ "Yes"))
+dataset %>% tabyl(ref_sz)
+
+dataset <- dataset %>%
+  mutate(ref_ed = case_when(ed=="Yes" & ed_date<=dis_date ~ "Yes",
+                            ed=="Yes" & is.na(dis_date) ~ "Yes"))
+dataset %>% tabyl(ref_ed)
+
+dataset <- dataset %>%
+  mutate(ref_pd = case_when(pd=="Yes" & pd_date<=dis_date ~ "Yes",
+                            pd=="Yes" & is.na(dis_date) ~ "Yes"))
+dataset %>% tabyl(ref_pd)
+
+dataset <- dataset %>%
+  mutate(ref_ld = case_when(ld=="Yes" & ld_date<=dis_date ~ "Yes",
+                            ld=="Yes" & is.na(dis_date) ~ "Yes"))
+dataset %>% tabyl(ref_ld)
+
+dataset <- dataset %>%
+  mutate(ref_adhd = case_when(adhd=="Yes" & adhd_date<=dis_date ~ "Yes",
+                              adhd=="Yes" & is.na(dis_date) ~ "Yes"))
+dataset %>% tabyl(ref_adhd)
+
+dataset <- dataset %>%
+  mutate(comorbid = case_when(ref_anx=="Yes" ~ "Yes",
+                              ref_ed=="Yes" ~ "Yes",
+                              ref_pd=="Yes" ~ "Yes",
+                              ref_ld=="Yes" ~ "Yes",
+                              ref_adhd=="Yes" ~ "Yes",
+                              ref_sz=="Yes" ~ "Yes"))
+dataset %>% tabyl(comorbid)
+
+#Referral source
+ref_source_cat <- import("ref_source_cat.csv",
+                  na.strings = c("", "NULL"))
+
+dataset <- left_join(dataset, ref_source_cat, by = "ref_source")
+
+dataset %>% tabyl(ref_source) 
+dataset %>% tabyl(ref_source_cat) 
+
+#Referral urgency
+dataset %>% tabyl(ref_priority) 
+dataset <- dataset %>%
+  mutate(urgency_cat = case_when(ref_priority=="Normal" |
+                                   ref_priority=="Within 28 days" ~ "Routine",
+                                 ref_priority=="Urgent" |
+                                   ref_priority=="Within 24 hours" |
+                                   ref_priority=="Within 7 days" ~ "Urgent / Priority",
+                                 TRUE ~ ref_priority))
+
+dataset %>% tabyl(ref_priority, urgency_cat) 
+dataset %>% tabyl(urgency_cat) 
+
+#Referral destination
+dataset %>% tabyl(speciality) 
+dataset %>% tabyl(area_of_care) 
+
+#Team type (for team episode referrals only)
+team_name_cat <- import("team_name_cat.csv",
+                         na.strings = c("", "NULL"))
+
+dataset <- left_join(dataset, team_name_cat, by = "team_name")
+
+team_table <- dataset %>% 
+  filter(speciality=="CAMHS" & area_of_care=="Team episode") %>% 
+  tabyl(team_name_cat)
+
+team_table %>% adorn_totals("row")
+
+#Interventions
+#Merging in medication dataset, and then just keeping those where first mention is during the referral period in question
+dataset_medicated <- left_join(dataset, medication, by = "brcid")
+dataset_medicated <- dataset_medicated %>%
+  mutate(drug_window = case_when(
+    first_drug_mention>=ref_date & first_drug_mention<=dis_date ~ "Yes",
+    first_drug_mention>=ref_date & is.na(dis_date) ~ "Yes"))
+
+dataset_medicated <- subset(dataset_medicated, drug_window=="Yes")
+
+length(unique(dataset_medicated[["brcid"]]))
+
+#Identifying mentions of psychotropic medications, specifically
+#Antidepressants
+dataset_medicated <- dataset_medicated %>% 
+  mutate(antidepressant = case_when(grepl("agomelatine", drug, fixed = TRUE) ~ "Yes",
+                                    grepl("allegron", drug, fixed = TRUE) ~ "Yes",
+                                    grepl("alventa xl", drug, fixed = TRUE) ~ "Yes",
+                                    grepl("amitriptyline", drug, fixed = TRUE) ~ "Yes",
+                                    grepl("amphero xl", drug, fixed = TRUE) ~ "Yes",
+                                    grepl("brintellix", drug, fixed = TRUE) ~ "Yes",
+                                    grepl("cipralex", drug, fixed = TRUE) ~ "Yes",
+                                    grepl("cipramil", drug, fixed = TRUE) ~ "Yes",
+                                    grepl("citalopram", drug, fixed = TRUE) ~ "Yes",
+                                    grepl("clomipramine", drug, fixed = TRUE) ~ "Yes",
+                                    grepl("cymbalta", drug, fixed = TRUE) ~ "Yes",
+                                    grepl("depefex xl", drug, fixed = TRUE) ~ "Yes",
+                                    grepl("dosulepin", drug, fixed = TRUE) ~ "Yes",
+                                    grepl("doxepin", drug, fixed = TRUE) ~ "Yes",
+                                    grepl("duloxetine", drug, fixed = TRUE) ~ "Yes",
+                                    grepl("edronax", drug, fixed = TRUE) ~ "Yes",
+                                    grepl("efexor xl", drug, fixed = TRUE) ~ "Yes",
+                                    grepl("escitalopram", drug, fixed = TRUE) ~ "Yes",
+                                    grepl("faverin", drug, fixed = TRUE) ~ "Yes",
+                                    grepl("fluoxetine", drug, fixed = TRUE) ~ "Yes",
+                                    grepl("fluvoxamine", drug, fixed = TRUE) ~ "Yes",
+                                    grepl("foraven xl", drug, fixed = TRUE) ~ "Yes",
+                                    grepl("imipramine", drug, fixed = TRUE) ~ "Yes",
+                                    grepl("isocarboxazid", drug, fixed = TRUE) ~ "Yes",
+                                    grepl("lofepramine", drug, fixed = TRUE) ~ "Yes",
+                                    grepl("lomont", drug, fixed = TRUE) ~ "Yes",
+                                    grepl("lustral", drug, fixed = TRUE) ~ "Yes",
+                                    grepl("majoven xl", drug, fixed = TRUE) ~ "Yes",
+                                    grepl("manerix", drug, fixed = TRUE) ~ "Yes",
+                                    grepl("mianserin", drug, fixed = TRUE) ~ "Yes",
+                                    grepl("mirtazapine", drug, fixed = TRUE) ~ "Yes",
+                                    grepl("moclobemide", drug, fixed = TRUE) ~ "Yes",
+                                    grepl("molipaxin", drug, fixed = TRUE) ~ "Yes",
+                                    grepl("nardil", drug, fixed = TRUE) ~ "Yes",
+                                    grepl("nortriptyline", drug, fixed = TRUE) ~ "Yes",
+                                    grepl("olena", drug, fixed = TRUE) ~ "Yes",
+                                    grepl("oxactin", drug, fixed = TRUE) ~ "Yes",
+                                    grepl("parnate", drug, fixed = TRUE) ~ "Yes",
+                                    grepl("paroxetine", drug, fixed = TRUE) ~ "Yes",
+                                    grepl("phenelzine", drug, fixed = TRUE) ~ "Yes",
+                                    grepl("politid xl", drug, fixed = TRUE) ~ "Yes",
+                                    grepl("prothiaden", drug, fixed = TRUE) ~ "Yes",
+                                    grepl("prozac", drug, fixed = TRUE) ~ "Yes",
+                                    grepl("prozep", drug, fixed = TRUE) ~ "Yes",
+                                    grepl("reboxetine", drug, fixed = TRUE) ~ "Yes",
+                                    grepl("seroxat", drug, fixed = TRUE) ~ "Yes",
+                                    grepl("sertraline", drug, fixed = TRUE) ~ "Yes",
+                                    grepl("sinepin", drug, fixed = TRUE) ~ "Yes",
+                                    grepl("sunveniz xl", drug, fixed = TRUE) ~ "Yes",
+                                    grepl("surmontil", drug, fixed = TRUE) ~ "Yes",
+                                    grepl("tranylcypromine", drug, fixed = TRUE) ~ "Yes",
+                                    grepl("trazodone", drug, fixed = TRUE) ~ "Yes",
+                                    grepl("trimipramine", drug, fixed = TRUE) ~ "Yes",
+                                    grepl("valdoxan", drug, fixed = TRUE) ~ "Yes",
+                                    grepl("venaxx xl", drug, fixed = TRUE) ~ "Yes",
+                                    grepl("venlablue xl", drug, fixed = TRUE) ~ "Yes",
+                                    grepl("venladex xl", drug, fixed = TRUE) ~ "Yes",
+                                    grepl("venlafaxine", drug, fixed = TRUE) ~ "Yes",
+                                    grepl("venlalic xl", drug, fixed = TRUE) ~ "Yes",
+                                    grepl("venlasoz xl", drug, fixed = TRUE) ~ "Yes",
+                                    grepl("vensir xl", drug, fixed = TRUE) ~ "Yes",
+                                    grepl("venzip xl", drug, fixed = TRUE) ~ "Yes",
+                                    grepl("viepax", drug, fixed = TRUE) ~ "Yes",
+                                    grepl("vortioxetine", drug, fixed = TRUE) ~ "Yes",
+                                    grepl("zispin", drug, fixed = TRUE) ~ "Yes"))
+
+dataset_medicated %>% 
+  filter(antidepressant=="Yes") %>% 
+  tabyl(drug, antidepressant)
+antidepressant <- subset(dataset_medicated, antidepressant=="Yes", select=c(brcid, antidepressant))
+antidepressant <- antidepressant %>%
+  group_by(brcid) %>% 
+  slice(1) %>% 
+  ungroup()
+
+skimr::skim(antidepressant)
+
+#Antipsychotic
+dataset_medicated <- dataset_medicated %>% 
+  mutate(antipsychotic = case_when(grepl("abilify", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("abilify maintena", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("alaquet", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("amisulpride", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("anquil", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("aripiprazole", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("arpoya", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("asenapine", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("atrolak", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("benperidol", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("biquelle", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("brancico", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("cariprazine", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("chloractil", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("clopixol", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("clopixol acuphase", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("clopizol concentrate", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("clozapine", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("clozaril", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("denzapine", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("depixol", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("dolmatil", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("ebesque", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("fluanxol", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("flupentixol", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("flupentixol decanoate", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("fluphenazine decanoate", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("haldol", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("haldol decanoate", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("halkid", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("haloperidol", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("haloperidol decanoate", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("invega", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("largactil", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("latuda", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("levomepromazine", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("lurasidone", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("mintreleg", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("modecate", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("neulactil", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("nozinan", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("olanzapine", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("olanzapine pamoate monohydrate", drug, fixed = TRUE) ~ "Yes",
+                                   drug=="orap" ~ "Yes", #Made this specific because otherwise it picks up other drug names
+                                   grepl("paliperidone", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("paliperidone palmitate", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("pericyazine", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("pimozide", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("prochlorperazine", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("promazine", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("psytoxil", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("quetiapine", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("reaglia", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("risperdal", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("risperdal consta", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("risperidone", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("seroquel", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("solian", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("stelazine", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("stemetil", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("sulpiride", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("sulpor", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("sycrest", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("tenprolide", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("trevicta", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("trifluoperazine", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("xeplion", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("zalasta", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("zaluron", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("zaponex", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("zuclopenthixol", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("zuclopenthixol decanoate", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("zuclopenthixol dihydrochloride", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("zypadhera", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("zyprexa", drug, fixed = TRUE) ~ "Yes"))
+dataset_medicated %>% 
+  filter(antipsychotic=="Yes") %>% 
+  tabyl(drug, antipsychotic)
+antipsychotic <- subset(dataset_medicated, antipsychotic=="Yes", select=c(brcid, antipsychotic))
+antipsychotic <- antipsychotic %>%
+  group_by(brcid) %>% 
+  slice(1) %>% 
+  ungroup()
+
+skimr::skim(antipsychotic)
+
+#Mood stabilisers
+dataset_medicated <- dataset_medicated %>% 
+  mutate(mood_stab = case_when(grepl("camcolit", drug, fixed = TRUE) ~ "Yes",
+                               grepl("carbagen", drug, fixed = TRUE) ~ "Yes",
+                               grepl("carbamazepine", drug, fixed = TRUE) ~ "Yes",
+                               grepl("depakote", drug, fixed = TRUE) ~ "Yes",
+                               grepl("epilim", drug, fixed = TRUE) ~ "Yes",
+                               grepl("lamictal", drug, fixed = TRUE) ~ "Yes",
+                               grepl("lamotrigine", drug, fixed = TRUE) ~ "Yes",
+                               grepl("li-liquid", drug, fixed = TRUE) ~ "Yes",
+                               grepl("liskonum", drug, fixed = TRUE) ~ "Yes",
+                               grepl("lithium carbonate", drug, fixed = TRUE) ~ "Yes",
+                               grepl("lithium citrate", drug, fixed = TRUE) ~ "Yes",
+                               grepl("priadel", drug, fixed = TRUE) ~ "Yes",
+                               grepl("tegretol", drug, fixed = TRUE) ~ "Yes",
+                               grepl("valproate", drug, fixed = TRUE) ~ "Yes"))
+dataset_medicated %>% 
+  filter(mood_stab=="Yes") %>% 
+  tabyl(drug, mood_stab)
+mood_stab <- subset(dataset_medicated, mood_stab=="Yes", select=c(brcid, mood_stab))
+mood_stab <- mood_stab %>%
+  group_by(brcid) %>% 
+  slice(1) %>% 
+  ungroup()
+
+skimr::skim(mood_stab)
+
+#Sleeping pills/tranquilisers
+dataset_medicated <- dataset_medicated %>% 
+  mutate(tranquilisers = case_when(grepl("alprazolam", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("alzain", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("ativan", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("axalid", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("buspirone", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("chloral hydrate", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("chlordiazepoxide", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("chlorpromazine", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("cloral betaine", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("circadin", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("clomethiazole", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("chlormethiazole", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("diazemuls", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("diazepam", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("diazepam rectubes", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("diphenhydramine", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("dormagen", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("heminevrin", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("lecaent", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("librium", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("loprazolam", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("lorazepam", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("lormetazepam", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("lyrica", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("melatonin", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("mogadon", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("nitrazepam", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("oxazepam", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("phenergan", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("pregabalin", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("promethazine", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("slenyto", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("sominex", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("stesolid", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("stilnoct", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("syncrodin", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("temazepam", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("tensium", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("tropium", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("welldorm", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("xanax", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("zimovane", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("zolpidem", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("zopiclone", drug, fixed = TRUE) ~ "Yes",
+                                   grepl("valium", drug, fixed = TRUE) ~ "Yes",))
+dataset_medicated %>% 
+  filter(tranquilisers=="Yes") %>% 
+  tabyl(drug, tranquilisers)
+tranquilisers <- subset(dataset_medicated, tranquilisers=="Yes", select=c(brcid, tranquilisers))
+tranquilisers <- tranquilisers %>%
+  group_by(brcid) %>% 
+  slice(1) %>% 
+  ungroup()
+
+skimr::skim(tranquilisers)
+
+#Merging categorised medications into the main dataset
+dataset <- left_join(dataset, antidepressant, by = "brcid")
+dataset <- left_join(dataset, antipsychotic, by = "brcid")
+dataset <- left_join(dataset, mood_stab, by = "brcid")
+dataset <- left_join(dataset, tranquilisers, by = "brcid")
+
+#Any psychotropic medication
+dataset <- dataset %>%
+  mutate(any_meds = case_when(antidepressant=="Yes" ~ "Yes",
+                              antipsychotic=="Yes" ~ "Yes",
+                              mood_stab=="Yes" ~ "Yes",
+                              tranquilisers=="Yes" ~ "Yes"))
+
+dataset %>% tabyl(any_meds) 
+dataset %>% tabyl(antidepressant) 
+dataset %>% tabyl(antipsychotic) 
+dataset %>% tabyl(mood_stab) 
+dataset %>% tabyl(tranquilisers) 
+
+#Referral open/closed
+dataset <- dataset %>%
+  mutate(ref_open = case_when(is.na(dis_date) ~ "Yes", 
+                              TRUE ~ "No"))
+
+dataset %>% tabyl(ref_open) 
+
+#Discharge reason
+dataset %>% 
+  filter(ref_open=="No") %>% 
+  tabyl(dis_method_episode) 
+
+dataset <- dataset %>%
+  mutate(dis_reason_cat = case_when(dis_method_episode=="On professional advice or with clinical consent" ~ "Care ended",
+                                    dis_method_episode=="Internal Transfer" |
+                                      dis_method_episode=="Redirected - no engagement" ~ "Care from elsewhere", 
+                                    dis_method_episode=="Against professional advice" |
+                                      dis_method_episode=="Death" |
+                                      dis_method_episode=="Discharge by relative or advocate" |
+                                      dis_method_episode=="Non-attendance" ~ "Withdrawal or death", 
+                                    is.na(dis_method_episode) ~ NA_character_,
+                                    TRUE ~ "Other"
+  ))
+dataset %>% tabyl(dis_method_episode, dis_reason_cat) 
+dataset %>% 
+  filter(ref_open=="No") %>% 
+  tabyl(dis_reason_cat)  
+
+#Service pathway timelines
+#Referral length
+dataset <- dataset %>%
+  mutate(ref_length = interval(ref_date, dis_date) %/% months(1))
+
+dataset <- dataset %>%
+  mutate(ref_months = case_when(ref_length<1 ~ "<1 month",
+                                ref_length>=1 & ref_length<=6 ~ "1-6 months",
+                                ref_length>=7 & ref_length<=12 ~ "7-12 months",
+                                ref_length>=13 & ref_length<=18 ~ "13-18 months",
+                                ref_length>=19 & ref_length<=24 ~ "19-24 months",
+                                ref_length>24 ~ ">24 months"))
+
+dataset %>% 
+  filter(ref_open=="No") %>% 
+  tabyl(ref_months) 
+
+#Time to first contact
+dataset <- dataset %>%
+  mutate(time_to_first_contact = interval(ref_date, first_contact) %/% months(1))
+
+dataset %>% 
+  tabyl(time_to_first_contact)  
+
+dataset <- dataset %>%
+  mutate(months_to_first_contact = case_when(time_to_first_contact<1 ~ "<1 month",
+                                             time_to_first_contact>=1 & time_to_first_contact<=6 ~ "1-6 months",
+                                             time_to_first_contact>=7 & time_to_first_contact<=12 ~ "7-12 months",
+                                             time_to_first_contact>12 ~ ">12 months"))
+months_to_first_contact <- dataset %>% 
+  filter(speciality=="CAMHS" & area_of_care=="Team episode") %>% 
+  filter(!is.na(months_to_first_contact)) %>% 
+  tabyl(months_to_first_contact)  
+
+months_to_first_contact %>% adorn_totals("row")
+
+#Therapy
+dataset_therapy <- left_join(dataset, therapy, by = "brcid")
+dataset_therapy <- dataset_therapy %>%
+  mutate(therapy_window = case_when(
+    therapy_start_date>=ref_date & therapy_start_date<=dis_date ~ "Yes",
+    therapy_start_date>=ref_date & is.na(dis_date) ~ "Yes"))
+
+dataset_therapy <- subset(dataset_therapy, therapy_window=="Yes")
+
+#Checking for patients with multiple therapy sessions in period
+dataset_therapy <- dataset_therapy %>% 
+  group_by(brcid) %>% 
+  mutate(dup = n()>1)
+dataset_therapy %>% tabyl(dup)
+
+#Checking whether therapy start date uniquely identifies such patients
+dataset_therapy <- dataset_therapy %>% 
+  group_by(brcid, therapy_start_date) %>% 
+  mutate(dup = n()>1)
+dataset_therapy %>% tabyl(dup)
+
+#It does, so keeping the first therapy in the referral period
+dataset_therapy <- dataset_therapy %>% 
+  group_by(brcid) %>% 
+  arrange(therapy_start_date, .by_group = TRUE) %>% 
+  mutate(instance = row_number())
+
+dataset_therapy <- dataset_therapy %>%
+  group_by(brcid) %>% 
+  filter(instance == min(instance)) %>% 
+  slice(1) %>% 
+  ungroup()
+
+#Merging into the main dataset 
+dataset_therapy <- subset(dataset_therapy, select=c(brcid, therapy_start_date, first_session_type, total_sessions_attended))
+dataset <- left_join(dataset, dataset_therapy, by = "brcid")
+
+#Summarising therapies
+sum(!is.na(dataset$first_session_type))
+
+dataset %>% 
+  filter(!is.na(first_session_type)) %>% 
+  tabyl(first_session_type)
+
+dataset <- dataset %>%
+  mutate(first_session_type_cat = case_when(first_session_type=="Cognitive Behavioural Therapy" |
+                                              first_session_type=="DBT" ~ "CBT or DBT",
+                                            first_session_type=="Arts Therapies" ~ "Arts Therapies",
+                                            first_session_type=="Group Therapy" ~ "Group Therapy",
+                                            is.na(first_session_type) ~ NA_character_,
+                                            TRUE ~ "Other"))
+
+dataset %>% tabyl(first_session_type, first_session_type_cat)
+
+dataset %>% 
+  filter(!is.na(first_session_type)) %>% 
+  tabyl(first_session_type_cat)
+
+sum(!is.na(dataset$total_sessions_attended) & !is.na(dataset$first_session_type_cat))
+
+dataset %>% 
+  filter(!is.na(first_session_type_cat)) %>% 
+  group_by(first_session_type_cat) %>% 
+  summarize(q25 = quantile(total_sessions_attended, 0.25),
+            q50 = quantile(total_sessions_attended, 0.50),
+            q75 = quantile(total_sessions_attended, 0.75))
