@@ -1,7 +1,7 @@
 
 # The patient journeys of children and adolescents with depression - CRIS and CRATE cleaning and analysis code
 
-This repository contains supporting code for "[The patient journeys of children and adolescents with depression: A study of electronic health records](https://doi.org/10.1017/S2045796021000603)". It contains:
+This repository contains supporting code for "[The patient journeys of children and adolescents with depression: A study of electronic health records](https://doi.org/10.1007/s00787-023-02232-6)". It contains:
 
  - Code file 1: R code used for cleaning and analysing an extract from Clinical Record Interactive Search ([CRIS](https://www.maudsleybrc.nihr.ac.uk/facilities/clinical-record-interactive-search-cris/)) 
   - Code file 2: R code used for cleaning and analysing an extract from Clinical Records Anonymisation and Text Extraction ([CRATE](https://cambridgebrc.nihr.ac.uk/publications/clinical-records-anonymisation-and-text-extraction-crate-an-open-source-software-system/))
@@ -26,7 +26,7 @@ This code has been released under [GNU General Public License (v3)](https://www.
 Please cite our original article:
 
 ```
-ALICE TO INSERT
+Wickersham, A., Westbrook, J., Colling, C., Downs, J., Govind, R., Kornblum, D., Lewis, J., Smith, P. and Ford, T. (2023). The patient journeys of children and adolescents with depression: A study of electronic health records. European Child and Adolescent Psychiatry. https://doi.org/10.1007/s00787-023-02232-6.
 ```
 
 
